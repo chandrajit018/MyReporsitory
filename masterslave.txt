@@ -1,0 +1,142 @@
+how to connect to linux instace using putty
+how to copy fie to linux instance using winscp
+-----------------------------------------------------------
+Remember we need java on all the nodes
+
+to begin with..in git bash connect with your pem file. now useradd root
+passwd root
+change password
+open the vi /etc/ssh/sshd_config and uncomment authenticatiopassword yes
+now switch to sudo -i
+and systemctl restart sshd
+now connect with putty and give the pasword and username 
+
+install java and jenkins on the master node
+install git also
+install maven also;;;;;;;;;;
+# cd /opt
+Then execute below command to download on Linux:
+Then use wget command and the copied url to download maven on Linux. Example is like below.
+# wget http://mirrors.estointernet.in/apache/maven/maven-3/3.6.1/binaries/apache-maven-3.6.1-bin.tar.gz
+This will download a tar file and we have to extract it.
+Ex: # tar -xvf apache-maven-3.6.1-bin.tar.gz
+Then get in to maven bin directory:
+# cd apache-maven-3.6.1/bin
+Then set the maven home.  For that first create M2_HOME environmental variable:
+# export M2_HOME=/opt/apache-maven-3.6.1/bin
+Then set M2_HOME variable to PATH.
+# export PATH=$PATH:$M2_HOME
+Then check Maven version
+# mvn -version
+install tomcat too:
+
+yum install tomcat tomcat-webapps tomcat-admin-webapps
+systemctl start tomcat
+systemctl enable tomcat
+vi /usr/share/tomcat/conf/tomcat-users.xml
+Add below text:
+<user username="admin" password="passw0rd" roles="admin-gui,manager-gui,manager-script"/>
+<user username="admin1" password="passw0rd" roles="admin-gui"/>
+<user username="admin2" password="passw0rd" roles="admin-gui,manager-gui"/>
+
+Then change the port number in server.xml if required.
+vi /usr/share/tomcat/conf/server.xml
+systemctl restart tomcat
+
+  
+
+
+In UI add maven plugin,and from global tool conf add maven path M2_HOME=/opt/apache-maven-3.6.1.
+
+Remember: iN build SECTION THERE WILL BE: pom>XML
+AND give the maven comman as clean install.
+
+IN post BUILD section we will get deploy to war ooption after adding the tomcat plugin from manage jenkins. give the target/*war
+tomcat url from the tomcat ui browser along with port no.give credentioal, admin and passw0rd as mentioned in the user.xml 
+
+	
+
+set pathfor java and also restart jenkins ervice
+
+do this on both slaves
+visudo
+make sure the wheel grpis uncommnted
+useradd jennkins slave
+give pasword
+add user to wheel group 
+usermod -aG wheel jenkinsslaveuser
+switch to user
+su jenkinsslaveuser
+sudo se jenkinsslaveuser
+now generate keys
+ssh-keygen -t rsa -N "" -f /home/jenkinsslaveuser/ssh/id_rsa
+copy the id_rsapub to a file authorized 
+cd .ssh
+cat id_rsa.pub > authorized_keys
+chmod 700 authorized_keys 
+
+
+Now on Master create  a directory
+mkdir -p /var/lib/jenkins/.ssh
+cd /var/lib/jenkins/.ssh
+copythe private ip of the slaves in the key scan command
+
+ssh-keyscan -H (private ip) >> /var/lib/jenkis/.ssh/knownhosts (for both slaves)
+
+now in UIwe will add a new node in manage node section..
+we give no of executers(no of jobs that can be executed at a time) and host (private ip) and credentials(usernae with private key):usernme is 
+ jenkinsslave which we gave in
+the slave userand add the private key of the slave to the below are.
+VERIFICATION STARTEGY WE SELECT IS:known host verification startegy 
+
+----------------------------------
+for docerized flow, the jenkins file and docker file should be under project directory	
+For pipeline scripts we will be required to add the tools from pipeline syntax while generating the pipeline..lets suppose for git we will choose git from the 
+archive artifatcs:and then enter the credentials 
+Docker must be installed in the master using sudo and restrt service and add jenkins user to docker group
+
+Jenkins file:
+node{
+  
+	stage('SCM Checkout'){
+       git credentialsId: 'git-credentials', url: 'https://github.com/kctechnologies/DockerHubJenkinsIntegration', branch: 'development'
+   }
+
+   stage('Maven Packaging'){
+     def mvnHome = tool name: 'maven-3', type: 'maven'
+     def mvnCMD = "${mvnHome}/bin/mvn"
+     sh "${mvnCMD} clean package"
+   }
+
+   stage('Building docker image'){
+     sh 'docker build -t kctechnologies/docker-jenkins:1.0.0 .'
+   }
+
+For below pushing the password must be encrypted wic is done thru pieline syntax generator over there we select bind credentials and select secret text.
+ we give the password for our dockr hub
+   
+ stage('Pushing docker image to docker hub'){
+     withCredentials([string(credentialsId: 'docker-passwd', variable: 'dockerHubPasswd')]) {
+        sh "docker login -u kctechnologies -p ${dockerHubPasswd}"
+     }
+     sh "docker push username/docker-jenkins:1.0.0"
+   }
+   stage('Removing old containers if any'){
+	try{
+		def dockerRemove = 'docker rm -f docker-jenkins'
+		sshagent(['remote-server']) {
+		sh "ssh -o StrictHostKeyChecking=no ec2-user@172.22.16.194 ${ dockerRemove }"
+		}
+	}catch(error){
+		//  write the exception handling code here like sending notification.
+	}
+ }
+
+   stage('Running docker container on remote server'){
+     def runCommand = 'docker run -p 8085:8080 -d --name docker-jenkins kctechnologies/docker-jenkins:1.0.0'
+     sshagent(['remote-server']) {
+       sh "ssh -o StrictHostKeyChecking=no ec2-user@172.22.16.194 ${runCommand}"
+     }
+   }
+
+}
